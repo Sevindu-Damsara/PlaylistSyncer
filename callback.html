@@ -10,8 +10,6 @@
 
   <script>
     const YT_API = 'AIzaSyDCNlcTnjlEvaVI_Xga-kBYt1XBrwJCooY';
-    const GEMINI_API = 'AIzaSyCG-0VABh5NDa61_lbPK5bxnv_6jQlVEwc';
-
     const code = new URLSearchParams(window.location.search).get('code');
     const ytUrl = localStorage.getItem('ytUrl');
     const ytPlaylistId = ytUrl.match(/[?&]list=([a-zA-Z0-9_-]+)/)?.[1];
@@ -27,13 +25,13 @@
 
         for (const item of items) {
           const title = item.snippet.title;
-          const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${GEMINI_API}`, {
+
+          const geminiRes = await fetch('/api/gemini', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: `Is "${title}" a song? If yes, give the best Spotify search query.` }] }]
-            })
+            body: JSON.stringify({ prompt: `Is "${title}" a song? If yes, give the best Spotify search query.` })
           });
+
           const geminiText = (await geminiRes.json())?.candidates?.[0]?.content?.parts?.[0]?.text || '';
           if (!geminiText.toLowerCase().includes('yes')) continue;
           const query = geminiText.split('Query:')[1]?.trim() || title;
@@ -43,6 +41,11 @@
           });
           const track = (await spotifyRes.json()).tracks.items[0];
           if (track) uris.push(track.uri);
+        }
+
+        if (uris.length === 0) {
+          document.getElementById('output').innerHTML = '⚠️ No valid tracks found to sync.';
+          return;
         }
 
         const userRes = await fetch('https://api.spotify.com/v1/me', {
