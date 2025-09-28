@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>PlaylistSyncer</title>
+  <style>
+    body {
+      background: #0d0d0d;
+      color: #e0e0e0;
+      font-family: 'Inter', sans-serif;
+      text-align: center;
+      padding: 2rem;
+    }
+    input, button {
+      padding: 0.5rem;
+      margin: 0.5rem;
+      font-size: 1rem;
+      border-radius: 5px;
+      border: none;
+    }
+    button {
+      background: #00ffc8;
+      color: #000;
+      cursor: pointer;
+    }
+    .track {
+      margin: 1rem auto;
+      padding: 1rem;
+      background: #1a1a1a;
+      border-radius: 8px;
+      width: 80%;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎶 PlaylistSyncer</h1>
+  <p>Paste your YouTube playlist URL:</p>
+  <input id="ytUrl" placeholder="https://www.youtube.com/playlist?list=PLxxxxxx" />
+  <button onclick="startSync()">Sync to Spotify</button>
+  <div id="output"></div>
+
+  <script>
+    const YT_API = 'AIzaSyDCNlcTnjlEvaVI_Xga-kBYt1XBrwJCooY';
+    const GEMINI_API = 'AIzaSyCG-0VABh5NDa61_lbPK5bxnv_6jQlVEwc';
+    const SPOTIFY_CLIENT_ID = '26f83a6e61e74da49391d630f64f684a';
+    const REDIRECT_URI = window.location.origin;
+
+    let accessToken = '';
+
+    function extractPlaylistId(url) {
+      const match = url.match(/[?&]list=([a-zA-Z0-9_-]+)/);
+      return match ? match[1] : null;
+    }
+
+    function startSync() {
+      const ytUrl = document.getElementById('ytUrl').value;
+      const playlistId = extractPlaylistId(ytUrl);
+      if (!playlistId) {
+        alert('Invalid YouTube playlist URL.');
+        return;
+      }
+      if (!accessToken) {
+        window.location.href = `https://accounts.spotify.com/authorize?client_id=${SPOTIFY_CLIENT_ID}&response_type=token&redirect_uri=${REDIRECT_URI}&scope=playlist-modify-public playlist-modify-private`;
+        return;
+      }
+      fetchYTPlaylist(playlistId);
+    }
+
+    function fetchYTPlaylist(playlistId) {
+      fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=10&playlistId=${playlistId}&key=${YT_API}`)
+        .then(res => res.json())
+        .then(data => {
+          const titles = data.items.map(item => item.snippet.title);
+          processTitles(titles);
+        });
+    }
+
+    async function processTitles(titles) {
+      const output = document.getElementById('output');
+      output.innerHTML = '<h2>Matched Tracks</h2>';
+      const uris = [];
+
+      for (const title of titles) {
+        const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${GEMINI_API}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: `Is "${title}" a song? If yes, give the best Spotify search query.` }] }]
+          })
+        });
+        const geminiData = await geminiRes.json();
+        const responseText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        if (!responseText.toLowerCase().includes('yes')) continue;
+        const query = responseText.split('Query:')[1]?.trim() || title;
+
+        const spotifyRes = await fetch(`https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=1`, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        const track = (await spotifyRes.json()).tracks.items[0];
+        if (track) {
+          uris.push(track.uri);
+          output.innerHTML += `<div class="track">${track.name} by ${track.artists.map(a => a.name).join(', ')}</div>`;
+        }
+      }
+
+      createPlaylist(uris);
+    }
+
+    async function createPlaylist(uris) {
+      const userRes = await fetch('https://api.spotify.com/v1/me', {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      const userId = (await userRes.json()).id;
+
+      const playlistRes = await fetch(`https://api.spotify.com/v1/users/${userId}/playlists`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Synced from YouTube', public: false })
+      });
+      const playlistId = (await playlistRes.json()).id;
+
+      await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uris })
+      });
+
+      document.getElementById('output').innerHTML += `<p>✅ Synced ${uris.length} tracks to Spotify!</p>`;
+    }
+
+    window.onload = () => {
+      const hash = window.location.hash;
+      if (hash.includes('access_token')) {
+        accessToken = new URLSearchParams(hash.substring(1)).get('access_token');
+        document.getElementById('output').innerHTML = '<p>✅ Spotify authenticated!</p>';
+      }
+    };
+  </script>
+</body>
+</html>
