@@ -14,13 +14,14 @@
 
     const code = new URLSearchParams(window.location.search).get('code');
     const ytUrl = localStorage.getItem('ytUrl');
-    const playlistId = ytUrl.match(/[?&]list=([a-zA-Z0-9_-]+)/)?.[1];
+    const ytPlaylistId = ytUrl.match(/[?&]list=([a-zA-Z0-9_-]+)/)?.[1];
 
     fetch(`/api/spotify-auth?code=${code}`)
       .then(res => res.json())
       .then(async data => {
         const accessToken = data.access_token;
-        const ytRes = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=10&playlistId=${playlistId}&key=${YT_API}`);
+
+        const ytRes = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=10&playlistId=${ytPlaylistId}&key=${YT_API}`);
         const items = (await ytRes.json()).items;
         const uris = [];
 
@@ -54,15 +55,15 @@
           headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: 'Synced from YouTube', public: false })
         });
-        const playlistId = (await playlistRes.json()).id;
+        const spotifyPlaylistId = (await playlistRes.json()).id;
 
-        await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks`, {
+        await fetch(`https://api.spotify.com/v1/playlists/${spotifyPlaylistId}/tracks`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ uris })
         });
 
-        document.getElementById('output').innerHTML = `✅ Synced ${uris.length} tracks to <a href="https://open.spotify.com/playlist/${playlistId}" target="_blank">your playlist</a>`;
+        document.getElementById('output').innerHTML = `✅ Synced ${uris.length} tracks to <a href="https://open.spotify.com/playlist/${spotifyPlaylistId}" target="_blank">your playlist</a>`;
       });
   </script>
 </body>
